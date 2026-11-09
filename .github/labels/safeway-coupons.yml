@@ -1,0 +1,5 @@
+extends: ./shared.yml
+labels:
+  - name: "accessibility"
+    color: "f143ab"
+    description: "Barrier affecting people with disabilities"

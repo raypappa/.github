@@ -1,0 +1,14 @@
+extends: ./shared.yml
+labels:
+  - name: "accessibility"
+    color: "f143ab"
+    description: "Barrier affecting people with disabilities"
+  - name: "high"
+    color: "b60205"
+    description: "Priority: high"
+  - name: "low"
+    color: "c45db1"
+    description: ""
+  - name: "medium"
+    color: "c21990"
+    description: ""

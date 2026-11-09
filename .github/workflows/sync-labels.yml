@@ -1,0 +1,115 @@
+name: Sync repository labels
+on:
+  pull_request:
+    paths:
+      - ".github/labels/**"
+      - ".github/workflows/sync-labels.yml"
+      - "README.md"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/labels/**"
+      - ".github/workflows/sync-labels.yml"
+      - "README.md"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Preview changes or apply them
+        required: true
+        type: choice
+        options:
+          - preview
+          - sync
+        default: preview
+permissions:
+  contents: read
+jobs:
+  app-credentials:
+    name: Check GitHub App credentials
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - name: Check for App credentials without exposing values
+        id: check
+        shell: bash
+        env:
+          APP_CLIENT_ID: ${{ vars.APP_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+        run: |
+          if [[ -n "$APP_CLIENT_ID" && -n "$APP_PRIVATE_KEY" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Report App credential readiness
+        shell: bash
+        env:
+          CONFIGURED: ${{ steps.check.outputs.configured }}
+        run: |
+          if [[ "$CONFIGURED" == "true" ]]; then
+            exit 0
+          fi
+
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            echo "::warning::Preview skipped; App credentials missing."
+            echo "Preview skipped." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::App credentials are required to sync labels."
+            exit 1
+          fi
+  synchronize-labels:
+    name: ${{ matrix.repository }} labels
+    needs: app-credentials
+    if: ${{ needs.app-credentials.outputs.configured == 'true' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - repository: homelab
+            labels_file: .github/labels/homelab.yml
+          - repository: hermes-agent-manager
+            labels_file: .github/labels/hermes-agent-manager.yml
+          - repository: mcp-meetup
+            labels_file: .github/labels/mcp-meetup.yml
+          - repository: prints-catalog
+            labels_file: .github/labels/prints-catalog.yml
+          - repository: safeway-coupons
+            labels_file: .github/labels/safeway-coupons.yml
+    steps:
+      - name: Check out central configuration
+        uses: >-
+          actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Create a narrowly scoped GitHub App token
+        id: app-token
+        uses: >-
+          actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: raypappa
+          repositories: ${{ matrix.repository }}
+          permission-issues: write
+      - name: Choose synchronization mode
+        id: mode
+        shell: bash
+        env:
+          DISPATCH_MODE: ${{ inputs.mode }}
+        run: |
+          case "$GITHUB_EVENT_NAME" in
+            push) mode=sync ;;
+            pull_request) mode=preview ;;
+            *) mode="${DISPATCH_MODE:-preview}" ;;
+          esac
+          echo "value=$mode" >> "$GITHUB_OUTPUT"
+      - name: Preview or sync labels
+        uses: >-
+          klaasnicolaas/action-label-blueprint@90f2ea1ff380df2e6c1c83f39797998f54cc97ab
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          repositories: raypappa/${{ matrix.repository }}
+          labels-file: ${{ matrix.labels_file }}
+          mode: ${{ steps.mode.outputs.value }}
+          prune: false
